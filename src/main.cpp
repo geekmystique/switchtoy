@@ -5,50 +5,63 @@
 #include <ESPAsyncWebServer.h>
 #include <ESPAsyncWiFiManager.h>
 #include <ArduinoOTA.h>
-#include <AceButton.h>
+#include <AceButton.h>//https://github.com/bxparks/AceButton
+#include <jled.h>//https://github.com/jandelgado/jled
+#include <WS2812FX.h>//https://github.com/kitesurfer1404/WS2812FX
+
 using namespace ace_button;
 
-#define GREENLED 14
-#define REDLED 12
+#define GREENLEDPIN 14
+#define REDLEDPIN 12
+#define GREENSWITCHPIN 5
+#define REDSWITCHPIN 4
+#define NEOXPIXELPIN 13
+#define NEOPIXELNUM 2
 
-#define GREENSWITCH 5
-#define REDSWITCH 4
 
-// Create 2 ButtonConfigs. The System ButtonConfig is not used.
+auto greenled = JLed(GREENLEDPIN);
+auto redled = JLed(REDLEDPIN);
+
 ButtonConfig config1;
 ButtonConfig config2;
 
-// Two buttons, explicitly bound to their respective ButtonConfig, instead
-// of the default System ButtonConfig.
 AceButton buttongreen(&config1);
 AceButton buttonred(&config2);
+
+void handleEventGreen(AceButton*, uint8_t, uint8_t);
+void handleEventRed(AceButton*, uint8_t, uint8_t);
+
+WS2812FX pixels(NEOPIXELNUM, NEOXPIXELPIN, NEO_GRB + NEO_KHZ400);
 
 AsyncWebServer server(80);
 DNSServer dns;
 
-void handleEventGreen(AceButton*, uint8_t, uint8_t);
-
-void handleEventRed(AceButton*, uint8_t, uint8_t);
 
 void setup()
 {
-  pinMode(GREENLED, OUTPUT); 
-  pinMode(REDLED, OUTPUT); 
+  WiFi.persistent(true); //ensure wifi credentials are saved
 
-  digitalWrite(REDLED, HIGH);
+  Serial.begin(76800);
+  Serial.println("Starting setup...");
 
-  pinMode(GREENSWITCH, INPUT_PULLUP); 
-  pinMode(REDSWITCH, INPUT_PULLUP); 
+  //turn on red led until setup is finished
+  redled.On();
+  redled.Update();
 
+  //acebutton setup
+  pinMode(GREENSWITCHPIN, INPUT_PULLUP); 
+  pinMode(REDSWITCHPIN, INPUT_PULLUP);
+  buttongreen.init(GREENSWITCHPIN);
+  buttonred.init(REDSWITCHPIN);
 
-  buttongreen.init(GREENSWITCH);
-  buttonred.init(REDSWITCH);
+  pixels.init();
+  pixels.start();
+  pixels.setSegment(0,0,0,FX_MODE_STATIC,RED);
+  pixels.setSegment(1,1,1,FX_MODE_STATIC,RED);
+  pixels.service();
 
   config1.setEventHandler(handleEventGreen);
   config1.setFeature(ButtonConfig::kFeatureClick);
-  config1.setFeature(ButtonConfig::kFeatureDoubleClick);
-  config1.setFeature(ButtonConfig::kFeatureLongPress);
-  config1.setFeature(ButtonConfig::kFeatureRepeatPress);
 
   config2.setEventHandler(handleEventRed);
   config2.setFeature(ButtonConfig::kFeatureClick);
@@ -56,7 +69,6 @@ void setup()
   config2.setFeature(ButtonConfig::kFeatureLongPress);
   config2.setFeature(ButtonConfig::kFeatureRepeatPress);
 
-  
   if (buttongreen.isPressedRaw()) {
     Serial.println(F("setup(): button 1 was pressed while booting"));
   }
@@ -64,21 +76,21 @@ void setup()
     Serial.println(F("setup(): button 2 was pressed while booting"));
   }
 
-  
-  WiFi.persistent(true);
-  Serial.begin(76800);
-  Serial.println("Starting setup...");
-
+  //wifimanager to handle initial SoftAP wifi setup
   AsyncWiFiManager wifiManager(&server, &dns);
   wifiManager.setDebugOutput(true);
   wifiManager.autoConnect("switchtoy");
   WiFi.hostname("switchtoy");
   
-
   Serial.println("Wifi finished...");
-  digitalWrite(REDLED, LOW);
-  digitalWrite(GREENLED, HIGH);
+  redled.Off();
+  greenled.On();
+  pixels.setSegment(0,0,0,FX_MODE_BREATH,GREEN);
+  pixels.setSegment(1,1,1,FX_MODE_STATIC,BLACK);
 
+  
+
+  //ota init
   ArduinoOTA.setPassword("switchtoyy");
   ArduinoOTA.onStart([]()
                      {
@@ -106,64 +118,71 @@ void setup()
   Serial.println("Ready");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
-   
+  
 }
 
-
-void loop()
-{
+void loop(){
   ArduinoOTA.handle();
+
+  //AceButton
   buttongreen.check();
   buttonred.check();
+  
+  //JLed
+  greenled.Update();
+  redled.Update();
 
-
+  //Neo pixel effects
+  pixels.service();
 }
-
 
 void handleEventGreen(AceButton* button, uint8_t eventType, uint8_t buttonState) {
 
-  // Print out a message for all events, for both buttons.
-  Serial.print(F("handleEvent1(): pin: "));
-  Serial.print(button->getPin());
-  Serial.print(F("; eventType: "));
-  Serial.print(eventType);
-  Serial.print(F("; buttonState: "));
-  Serial.println(buttonState);
+  //Simple on off setup (with fade)
 
-  // Control the LED only for the Pressed and Released events of Button 1.
-  // Notice that if the MCU is rebooted while the button is pressed down, no
-  // event is triggered and the LED remains off.
   switch (eventType) {
     case AceButton::kEventClicked:
-      digitalWrite(GREENLED, 1);
-      break;
-    case AceButton::kEventLongPressed:
-      digitalWrite(GREENLED, 0);
-      break;
+    if(greenled.IsRunning() || greenled.Get() > 0)
+    {
+      pixels.setSegment(0,0,0,FX_MODE_STATIC,BLACK);
+      greenled.FadeOff(200);
+    }else{
+      pixels.stop();
+      pixels.resetSegments();
+      pixels.setSegment(0,0,0,FX_MODE_BREATH,GREEN);
+      greenled.FadeOn(200);
+    }
+    break;
   }
 }
-
-
-
 void handleEventRed(AceButton* button, uint8_t eventType, uint8_t buttonState) {
-
-  // Print out a message for all events, for both buttons.
-  Serial.print(F("handleEvent1(): pin: "));
-  Serial.print(button->getPin());
-  Serial.print(F("; eventType: "));
-  Serial.print(eventType);
-  Serial.print(F("; buttonState: "));
-  Serial.println(buttonState);
-
-  // Control the LED only for the Pressed and Released events of Button 1.
-  // Notice that if the MCU is rebooted while the button is pressed down, no
-  // event is triggered and the LED remains off.
   switch (eventType) {
+
+    //Example with 1 press, long press and double press logic
     case AceButton::kEventClicked:
-      digitalWrite(REDLED, 1);
-      break;
-    case AceButton::kEventLongPressed:
-      digitalWrite(REDLED, 0);
-      break;
+    if(redled.IsRunning() || redled.Get() > 0)
+    {
+      redled.Stop();
+      pixels.setSegment(1,1,1,FX_MODE_STATIC,BLACK);
+    }else{
+      redled.Blink(500,500).Forever();
+      pixels.setSegment(1,1,1,FX_MODE_COLOR_SWEEP_RANDOM);
+    }
+    break;
+    case AceButton::kEventLongPressed://
+    redled.Breathe(3000);
+    pixels.stop();
+    pixels.resetSegments();
+    pixels.setSegment(0,0,1,FX_MODE_STATIC,WHITE);
+    pixels.setBrightness(255);
+    pixels.start();
+    break;
+    case AceButton::kEventDoubleClicked://fire
+    redled.Candle(5, 100).Forever();
+    pixels.stop();
+    pixels.resetSegments();
+    pixels.setSegment(0,0,1,FX_MODE_FIRE_FLICKER_SOFT,RED,200);
+    pixels.start();
+    break;
   }
 }

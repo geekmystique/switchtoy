@@ -5,7 +5,7 @@ ESP 8266 based wifi switch with LED indicators. Base for simple IOT indicator/sw
 
 ### Hardware:
 
-ESP8266 module  
+ESP8266 "Wemos NodeMCU" module  
 2x 60MM Arcade buttons (Aliexpress)  
 WS2812B strip (2 LEDs) - 60/m  
 3d printed case  
